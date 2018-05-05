@@ -1,11 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
+#include <string.h>
+#include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include <stdarg.h>
-#include <string.h>
 
 #include "dump.h"
 #include "types.h"
@@ -133,60 +133,42 @@ const ascii * const sxs_TraceDesc [SXS_NB_ID] =
 72 66 63 6e 20 30 78 25 78 0a 00 52 52 49 5f 53 rfcn 0x%x..RRI_S
 59 53 49 4e 46 4f 5f 49 4e 44 00 51 00 00 00 c4 YSINFO_IND.Q....
 e3 24 82 03 00 00 00 e4 45 29 82 44 7d 27 82    .$......E).D}'.
-#endif
 
 char fmt_arg[] = {0x3c, 0x2d, 0x2d, 0x20, 0x3c, 0x25, 0x73, 0x3e, 0x20, 0x6f, 0x6e, 0x20, 0x41, 0x72, 0x66, 0x63, 0x6e, 0x20, 0x30, 0x78, 0x25, 0x78, 0x0a, 0x00};
 char data_arg[] = {0x52, 0x52, 0x49, 0x5f, 0x53, 0x59, 0x53, 0x49, 0x4e, 0x46, 0x4f, 0x5f, 0x49, 0x4e, 0x44, 0x00, 0x51, 0x00, 0x00, 0x00};
+#endif
 
+#define DBG_FILE "/dev/modem1"
+//#define DBG_FILE "log.bin"
 
-void prn(char *fmt, char *data, char *output)
+#define DBG_EN_FILE "/sys/devices/virtual/tty/modem1/bp_trace"
+
+void dbg_enable(void)
 {
-	int i;
-	int fmt_cnt = 0;
-	int data_cnt = 0;
-	int output_cnt = 0;
-
-	while (fmt_cnt < strlen(fmt)) {
-		if (fmt[fmt_cnt] == '%') {
-			switch (fmt[fmt_cnt + 1]) {
-				case 's':
-					i = sprintf(output + output_cnt, "%s", &data[data_cnt]);
-					output_cnt += i;
-					data_cnt += i + 1;
-				break;
-				case 'd' :
-					output_cnt += sprintf(output + output_cnt, "%d", *(u32 *)(&data[data_cnt]));
-					data_cnt += 4;
-				break;
-				case 'u':
-					output_cnt += sprintf(output + output_cnt, "%u", *(u32 *)(&data[data_cnt]));
-					data_cnt += 4;
-				break;
-				case 'x':
-					output_cnt += sprintf(output + output_cnt, "%x", *(u32 *)(&data[data_cnt]));
-					data_cnt += 4;
-				break;
-}
-			fmt_cnt++;
-		}
-		else {
-			output[output_cnt++] = fmt[fmt_cnt];
-		}
-
-		fmt_cnt++;
+	FILE *fd = fopen(DBG_EN_FILE, "w");
+	if (!fd) {
+		printf("can not open dbg enable file "DBG_EN_FILE"\n");
+		return;
 	}
-	output[output_cnt] = 0;
+	fprintf(fd, "1\n");
+	fclose(fd);
 }
-
 
 void main(void)
 {
+	int fd = open(DBG_FILE , O_RDONLY);
+	if (fd < 0) {
+		printf("can not open debug file: "DBG_FILE"\n");
+		return; 
+	}
+
 	if (loadDb()) {
 		printf("can not load traceDb\n");
 		return;
 	}
 
-	int fd = open("/dev/modem1" /*"log.bin"*/, O_RDONLY);
+	dbg_enable();
+
 	while (1) {
 		u8 start_frm;
 		int read_len;

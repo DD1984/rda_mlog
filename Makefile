@@ -1,5 +1,7 @@
 TARGET = rda_mlog
 
+CROSS_COMPILE=/usr/bin/arm-linux-gnueabi-
+
 CC = $(CROSS_COMPILE)gcc
 LD = $(CROSS_COMPILE)ld
 
