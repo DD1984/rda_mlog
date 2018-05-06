@@ -4,13 +4,6 @@
 
 #define	BUF		40
 
-# define u_short unsigned short
-# define u_int unsigned int
-# define u_long unsigned long
-# define quad_t long
-# define u_quad_t unsigned long
-
-typedef void * void_ptr_t;
 /*
  * Macros for converting digits to letters and vice versa
  */
@@ -23,12 +16,9 @@ typedef void * void_ptr_t;
  */
 #define	HEXPREFIX	0x002		/* add 0x or 0X prefix */
 #define	LADJUST		0x004		/* left adjustment */
-#define	LONGDBL		0x008		/* long double */
 #define	LONGINT		0x010		/* long integer */
 #define	SHORTINT	0x040		/* short integer */
 #define	ZEROPAD		0x080		/* zero (as opposed to blank) pad */
-
-# define CHARINT	0
 
 #define _CONST const
 
@@ -41,42 +31,49 @@ typedef void * void_ptr_t;
 	} \
 }
 
-typedef struct {
-	char arr[0];
-} char_ptr_t;
-
-char *get_arg(char **data, unsigned int size)
+unsigned long get_number_arg(char **data, int flags)
 {
-	char *ret = *data;
-	if (size == 0) {//string
-		while (**data != 0)
-			(*data)++;
-		(*data)++;
+	unsigned long ret;
 
-		return ret;
+	if (flags & LONGINT) {
+		ret = (unsigned long)(*(unsigned short *)(*data));
+		(*data) += sizeof(unsigned short);
+	}
+	else if (flags & SHORTINT) {
+		ret = (*(unsigned long *)(*data));
+		(*data) += sizeof(unsigned long);
 	}
 	else {
-		(*data) += size;
-		
-		u_quad_t tmp = *((u_quad_t *)ret);
-		u_quad_t size_q = 1;
-		size_q <<= size * 8;
-		u_quad_t mask = size_q - 1;
-
-		return (char *)(tmp & mask);
-		
+		ret = (unsigned long)(*(unsigned int *)(*data));
+		(*data) += sizeof(unsigned int);
 	}
+	return ret;
 }
 
-#define GET_ARG(n, ap, type) get_arg(&ap, sizeof(type))
+char *get_string_arg(char **data)
+{
+	char *ret = *data;
+	while (**data != 0)
+		(*data)++;
+	(*data)++;
+
+	return ret;
+}
+
+char get_char_arg(char **data)
+{
+	char ret = **data;
+	(*data)++;
+
+	return ret;
+}
 
 #define	FLUSH() fflush(stdout)
 
-void print(char *fmt0, char *data)
+void print(char *fmt0, char *data0)
 {
-	char *ap = data;
-
 	register char *fmt;	/* format string */
+	char *data;
 	register int ch;	/* character from fmt */
 	register int n, m;	/* handy integers (short term usage) */
 	register char *cp;	/* handy char pointer (short term usage) */
@@ -86,8 +83,8 @@ void print(char *fmt0, char *data)
 	int width;		/* width from format (%8d), or 0 */
 	int prec;		/* precision from format (%.3d), or -1 */
 	char sign;		/* sign prefix (' ', '+', '-', or \0) */
-	u_quad_t _uquad;	/* integer arguments %[diouxX] */
-	enum { OCT, DEC, HEX } base;/* base for [diouxX] conversion */
+	unsigned long _uquad;	/* integer arguments %[diouxX] */
+	enum { DEC, HEX } base;/* base for [diouxX] conversion */
 	int dprec;		/* a copy of prec if [diouxX], 0 otherwise */
 	int realsz;		/* field size expanded by dprec */
 	int size;		/* size of converted field or string */
@@ -110,16 +107,6 @@ void print(char *fmt0, char *data)
 	 * To extend shorts properly, we need both signed and unsigned
 	 * argument extraction methods.
 	 */
-#define	SARG() \
-	(flags&LONGINT ? GET_ARG (N, ap, long) : \
-	    flags&SHORTINT ? (long)(short)GET_ARG (N, ap, int) : \
-	    flags&CHARINT ? (long)(signed char)GET_ARG (N, ap, int) : \
-	    (long)GET_ARG (N, ap, int))
-#define	UARG() \
-	(flags&LONGINT ? GET_ARG (N, ap, u_long) : \
-	    flags&SHORTINT ? (u_long)(u_short)GET_ARG (N, ap, int) : \
-	    flags&CHARINT ? (u_long)(unsigned char)GET_ARG (N, ap, int) : \
-	    (u_long)GET_ARG (N, ap, u_int))
 
 #define	PAD(howmany, with) { \
 	if ((n = (howmany)) > 0) { \
@@ -132,6 +119,7 @@ void print(char *fmt0, char *data)
 }
 
 	fmt = (char *)fmt0;
+	data = data0;
 
 	/*
 	 * Scan the format for conversions (`%' character).
@@ -197,58 +185,27 @@ reswitch:	switch (ch) {
 		case 'c':
 			cp = buf;
 			{
-				*cp = GET_ARG (N, ap, int);
+				*cp = get_char_arg(&data);
+
 				size = 1;
 			}
 			sign = '\0';
 			break;
 		case 'd':
 		case 'i':
-			_uquad = SARG ();
+			_uquad = get_number_arg(&data, flags);
 
 			if ((long) _uquad < 0)
 			{
-
 				_uquad = -_uquad;
 				sign = '-';
 			}
 			base = DEC;
 			goto number;
-		case 'o':
-			_uquad = UARG ();
-			base = OCT;
-			goto nosign;
-		case 'p':
-			/*
-			 * ``The argument shall be a pointer to void.  The
-			 * value of the pointer is converted to a sequence
-			 * of printable characters, in an implementation-
-			 * defined manner.''
-			 *	-- ANSI X3J11
-			 */
-			/* NOSTRICT */
-			_uquad = (uintptr_t) GET_ARG (N, ap, void_ptr_t);
-			base = HEX;
-			xdigs = "0123456789abcdef";
-			flags |= HEXPREFIX;
-			ox[0] = '0';
-			ox[1] = ch = 'x';
-			goto nosign;
 		case 's':
-
-			cp = GET_ARG (N, ap, char_ptr_t);
+			cp = get_string_arg(&data);
 
 			sign = '\0';
-
-			/* Behavior is undefined if the user passed a
-			   NULL string when precision is not 0.
-			   However, if we are not optimizing for size,
-			   we might as well mirror glibc behavior.  */
-			if (cp == NULL) {
-				cp = "(null)";
-				size = ((unsigned) prec > 6U) ? 6 : prec;
-			}
-			else
 
 			if (prec >= 0) {
 				/*
@@ -267,7 +224,7 @@ reswitch:	switch (ch) {
 
 			break;
 		case 'u':
-			_uquad = UARG ();
+			_uquad = get_number_arg(&data, flags);
 			base = DEC;
 			goto nosign;
 		case 'X':
@@ -275,7 +232,8 @@ reswitch:	switch (ch) {
 			goto hex;
 		case 'x':
 			xdigs = "0123456789abcdef";
-hex:			_uquad = UARG ();
+hex:
+			_uquad = get_number_arg(&data, flags);
 			base = HEX;
 
 			/* unsigned conversions */
@@ -301,13 +259,6 @@ number:			if ((dprec = prec) >= 0)
 				 * a variable; hence this switch.
 				 */
 				switch (base) {
-				case OCT:
-					do {
-						*--cp = to_char (_uquad & 7);
-						_uquad >>= 3;
-					} while (_uquad);
-					break;
-
 				case DEC:
 					/* many numbers are 1 digit */
 					if (_uquad < 10) {
