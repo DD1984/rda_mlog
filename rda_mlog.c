@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <time.h>
 
 #include "dump.h"
 #include "types.h"
@@ -128,16 +129,6 @@ const ascii * const sxs_TraceDesc [SXS_NB_ID] =
 #define TDB_POS         12
 #define TDB             (1 << TDB_POS)                  /* Data base indicator: format string to be found in data base. */
 
-#if 0
-80 14 80 3c 2d 2d 20 3c 25 73 3e 20 6f 6e 20 41 ...<-- <%s> on A
-72 66 63 6e 20 30 78 25 78 0a 00 52 52 49 5f 53 rfcn 0x%x..RRI_S
-59 53 49 4e 46 4f 5f 49 4e 44 00 51 00 00 00 c4 YSINFO_IND.Q....
-e3 24 82 03 00 00 00 e4 45 29 82 44 7d 27 82    .$......E).D}'.
-
-char fmt_arg[] = {0x3c, 0x2d, 0x2d, 0x20, 0x3c, 0x25, 0x73, 0x3e, 0x20, 0x6f, 0x6e, 0x20, 0x41, 0x72, 0x66, 0x63, 0x6e, 0x20, 0x30, 0x78, 0x25, 0x78, 0x0a, 0x00};
-char data_arg[] = {0x52, 0x52, 0x49, 0x5f, 0x53, 0x59, 0x53, 0x49, 0x4e, 0x46, 0x4f, 0x5f, 0x49, 0x4e, 0x44, 0x00, 0x51, 0x00, 0x00, 0x00};
-#endif
-
 #define DBG_FILE "/dev/modem1"
 //#define DBG_FILE "log.bin"
 
@@ -218,6 +209,10 @@ void main(void)
 		//hex_dump(data_buf, data_size);
 		//printf("---\n");
 
+		time_t now = time(NULL);
+		struct tm *_tm = localtime(&now);
+		printf("[%02d-%02d%02d%02d] ", _tm->tm_mday, _tm->tm_hour, _tm->tm_min, _tm->tm_sec);
+
 		switch (frame_id) {
 			case SXS_TRACE_RMC:
 			{
@@ -233,7 +228,7 @@ void main(void)
 				if (TId & TDB) {
 					Fmt = traceDb_get_str(*(u32 *)(Data + 2));
 					if (!Fmt)
-						printf("unknown traceDb id: 0x%08x\n", *(u32 *)(Data + 2));
+						printf("unknown traceDb id: 0x%08x", *(u32 *)(Data + 2));
 					Data += 4 + 2;
 				}
 				else {
@@ -251,9 +246,6 @@ void main(void)
 					print(fmt_new, Data);
 					
 					free(fmt_new);
-
-					printf("\n");
-
 				}
 
 				break;
@@ -261,12 +253,61 @@ void main(void)
 			case SXS_TIME_STAMP_RMC:
 			{
 				u32 Fn = *((u32 *)Data);
-				printf ("Fn %i T1 %i T2 %i T3 %i\n", Fn, Fn/1326, Fn%26, Fn%51);
+				printf("Fn %i T1 %i T2 %i T3 %i", Fn, Fn/1326, Fn%26, Fn%51);
 				break;
 			}
+
+			case SXS_DUMP_RMC:
+			{
+				typedef struct {
+					u16 Id;
+					u16 Size;
+					ascii Fmt[4];
+					u32 Address;
+					u8 *Data;
+				} sxs_FlwDmp_t;
+
+				sxs_FlwDmp_t *FlwDmp = (sxs_FlwDmp_t *)Data;
+				u8 DataSize = (FlwDmp->Fmt[1] - '0') / 2;
+				u16 SizeDmp, i;
+				const char *Fmt = "%02x";
+
+				if (!(FlwDmp->Id & TIDU))
+					printf("%s %2i:", sxs_TraceDesc[TGET_ID(FlwDmp->Id)], TGET_LEVEL(FlwDmp->Id) + 1);
+
+				if ((DataSize != 1) && (DataSize != 2) && (DataSize != 4)) {
+					DataSize = 1;
+					strcpy(FlwDmp->Fmt, "%2x");
+				}
+
+				SizeDmp = FlwDmp->Size / DataSize;
+
+				for (i = 0; i < SizeDmp; i++) {
+					if (((i & 0xF) == 0) && (i != 0))
+						printf("\n        ");
+					else
+						printf(" ");
+
+					switch (DataSize) {
+						case 1:
+							printf(Fmt, FlwDmp->Data[i]);
+						break;
+						case 2:
+							printf(FlwDmp->Fmt, ((u16 *)FlwDmp->Data)[i]);
+						break;
+						case 4:
+							printf(FlwDmp->Fmt, ((u32 *)FlwDmp->Data)[i]);
+						break;
+					}
+				}
+				break;
+			}
+
 			default:
-				printf("not supported frame_id: 0x%02x(%s)\n", frame_id, FRAME_ID_TO_STR(frame_id));
+				printf("not supported frame_id: 0x%02x(%s)", frame_id, FRAME_ID_TO_STR(frame_id));
 		}
+
+		printf("\n");
 
 		free(data_buf);
 
